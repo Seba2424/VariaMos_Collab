@@ -34,6 +34,12 @@ import { isJSDocThisTag } from "typescript";
 import * as alertify from "alertifyjs";
 import { Buffer } from "buffer";
 
+declare global {
+  interface Window {
+    projectServer: ProjectService;
+  }
+}
+
 export default class ProjectService {
   private graph: any;
   private projectManager: ProjectManager = new ProjectManager();
@@ -53,7 +59,7 @@ export default class ProjectService {
   private _environment: string = Config.NODE_ENV;
   private _languages: any = this.getLanguagesByUser();
   private _externalFunctions: ExternalFuntion[] = [];
-  private _project: Project = this.createProject("");
+  
   private _projectInformation: ProjectInformation;
   private treeItemSelected: string = "";
   private treeIdItemSelected: string = "";
@@ -76,6 +82,59 @@ export default class ProjectService {
   private updatedElementListeners: any = [];
   private createdElementListeners: any = [];
 
+  private socket: WebSocket;
+  private _project: Project;
+
+  constructor() {
+    this._project = this.createProject("Default Project");
+    this.socket = new WebSocket('ws://localhost:3001');
+
+    this.socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      this.handleIncomingUpdate(data);
+    };
+
+    this.socket.onopen = () => {
+      console.log('WebSocket connection established');
+    };
+
+    this.socket.onclose = () => {
+      console.log('WebSocket connection closed');
+    };
+  }
+
+  private handleIncomingUpdate(data: any) {
+    console.log('Received data from server:', JSON.stringify(data, null, 2));
+    this._project = this.deepMerge(this._project, data);
+    console.log('Before update, project:', JSON.stringify(this._project, null, 2));
+    console.log('Project updated with data:', JSON.stringify(this._project, null, 2));
+    this.notifyUIAboutProjectUpdate();
+  }
+
+
+  private updateUIComponents() {
+    console.log('Updating UI components');
+    window.dispatchEvent(new CustomEvent('projectUpdated', { detail: this._project }));
+  }
+
+  private sendUpdate(project: Project) {
+    console.log("Project to be sent:", JSON.stringify(project, null, 2));
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(project));
+      console.log("Update sent: ", JSON.stringify(project, null, 2));
+    } else {
+      console.log("WebSocket is not open");
+    }
+  }
+
+  public sendUpdatePublic() {
+    console.log("Sending update to server...");
+    this.sendUpdate(this._project);
+  }
+  private notifyUIAboutProjectUpdate() {
+    const event = new CustomEvent('projectUpdated', { detail: this._project });
+    window.dispatchEvent(event);
+  }
   // constructor() {
   //   let me = this;
   //   let fun = function (data: any) {
@@ -97,17 +156,17 @@ export default class ProjectService {
     return this._environment;
   }
 
-  public getProject():Project{
+  public getProject(): Project {
     return this._project;
-  } 
+  }
 
-  public getProjectInformation():ProjectInformation{
+  public getProjectInformation(): ProjectInformation {
     return this._projectInformation;
-  } 
+  }
 
-  public setProjectInformation(projectInformation:ProjectInformation){
-    this._projectInformation=projectInformation;
-  } 
+  public setProjectInformation(projectInformation: ProjectInformation) {
+    this._projectInformation = projectInformation;
+  }
 
   public getProductLineSelected(): ProductLine {
     let i = this.productLineSelected;
@@ -237,7 +296,7 @@ export default class ProjectService {
   modelApplicationEngSelected(idPl: number, idApplicationEngModel: number) {
     let modelSelected =
       this._project.productLines[idPl].applicationEngineering?.models[
-        idApplicationEngModel
+      idApplicationEngModel
       ];
     this.treeItemSelected = "model";
     this.treeIdItemSelected = modelSelected.id;
@@ -451,20 +510,20 @@ export default class ProjectService {
       let data = JSON.parse(databaseUserProfile);
       userId = data.user.id;
     }
-    if (userId=="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") { 
-       //userId="21cd2d82-1bbc-43e9-898a-d5a45abdeced"; 
+    if (userId == "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa") {
+      //userId="21cd2d82-1bbc-43e9-898a-d5a45abdeced"; 
     }
     return userId;
   }
 
   isGuessUser() {
-    let userId=this.getUser();
+    let userId = this.getUser();
     let guessUserId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-    if (userId==guessUserId) {
+    if (userId == guessUserId) {
       return true;
-    }else{
+    } else {
       return false;
-    } 
+    }
   }
 
   getLanguagesByUser(): Language[] {
@@ -605,19 +664,42 @@ export default class ProjectService {
     this._project = value;
   }
 
-  createNewProject(projectName:string, productLineName: string, type: string, domain: string) { 
-    let project = this.projectManager.createProject(projectName);
-    this.createLPS(project, productLineName,  type, domain);
+  public createNewProject(projectName: string, productLineName: string, type: string, domain: string): Project {
+    let project = this.createProject(projectName);
+    this.createLPS(project, productLineName, type, domain);
     return project;
   }
 
-  createProject(projectName: string): Project {
-    let project = this.projectManager.createProject(projectName);
+  public createProject(name: string): Project {
+    let project = this.projectManager.createProject(name);
+    console.log('Project after creation:', JSON.stringify(project, null, 2));
     project = this.loadProject(project);
-
+    console.log('Project after loading:', JSON.stringify(project, null, 2));
     return project;
   }
 
+  private deepMerge(target: any, source: any): any {
+    const isObject = (obj: any) => obj && typeof obj === 'object';
+
+    if (!isObject(target) || !isObject(source)) {
+      return source;
+    }
+
+    Object.keys(source).forEach(key => {
+      const targetValue = target[key];
+      const sourceValue = source[key];
+
+      if (Array.isArray(targetValue) && Array.isArray(sourceValue)) {
+        target[key] = [...targetValue, ...sourceValue];
+      } else if (isObject(targetValue) && isObject(sourceValue)) {
+        target[key] = this.deepMerge(targetValue, sourceValue);
+      } else {
+        target[key] = sourceValue;
+      }
+    });
+
+    return target;
+  }
   //This gets called when one uploads a project file
   //It takes as the parameters the file one selects from the
   //dialog
@@ -625,7 +707,7 @@ export default class ProjectService {
     console.log(file);
     if (file) {
       this._project = Object.assign(this._project, JSON.parse(file));
-      this._projectInformation=new ProjectInformation(null, this._project.name, null, false);
+      this._projectInformation = new ProjectInformation(null, this._project.name, null, false);
     }
     this.raiseEventUpdateProject(this._project, null);
   }
@@ -633,8 +715,8 @@ export default class ProjectService {
   updateProject(project: Project, modelSelectedId: string): void {
     this._project = project;
     this.raiseEventUpdateProject(this._project, modelSelectedId);
-    //find the model selected
-    //By default, only a single product line is supported
+    this.sendUpdate(this._project);
+    console.log('Update project called with project:', JSON.stringify(this._project, null, 2));
   }
 
   loadProject(project: Project): Project {
@@ -646,53 +728,53 @@ export default class ProjectService {
     return project;
   }
 
-  openProjectInServer(projectId:string, template:boolean): void {
-    let me=this;
+  openProjectInServer(projectId: string, template: boolean): void {
+    let me = this;
     let user = this.getUser();
- 
-    let openProjectInServerSuccessCallback =  (projectInformation: ProjectInformation )=> { 
-      me._project = projectInformation.project ;
-      me._projectInformation = projectInformation; 
+
+    let openProjectInServerSuccessCallback = (projectInformation: ProjectInformation) => {
+      me._project = projectInformation.project;
+      me._projectInformation = projectInformation;
       if (template) {
-        me._projectInformation.id=null;
-        me._projectInformation.template=false;
+        me._projectInformation.id = null;
+        me._projectInformation.template = false;
       }
       me.raiseEventUpdateProject(me._project, null);
     }
-  
-    let openProjectInServerErrorCallback =  (e) => {
+
+    let openProjectInServerErrorCallback = (e) => {
       alert(JSON.stringify(e));
     }
 
     this.projectPersistenceUseCases.openProject(user, projectId, openProjectInServerSuccessCallback, openProjectInServerErrorCallback);
-  } 
+  }
 
-  saveProjectInServer(projectInformation:ProjectInformation, successCallback:any, errorCallback: any): void {
-    let me=this;
+  saveProjectInServer(projectInformation: ProjectInformation, successCallback: any, errorCallback: any): void {
+    let me = this;
     let user = this.getUser();
-    projectInformation.project=this._project;
+    projectInformation.project = this._project;
 
-    let sc =(e)=>{
-       me._projectInformation=e;
-       if (successCallback) {
+    let sc = (e) => {
+      me._projectInformation = e;
+      if (successCallback) {
         successCallback(e);
-       }
-    }  
+      }
+    }
     this.projectPersistenceUseCases.saveProject(user, projectInformation, sc, errorCallback);
   }
 
-  deleteProjectInServer(projectInformation:ProjectInformation, successCallback:any, errorCallback: any): void {
-    let me=this;
-    let user = this.getUser(); 
+  deleteProjectInServer(projectInformation: ProjectInformation, successCallback: any, errorCallback: any): void {
+    let me = this;
+    let user = this.getUser();
 
-    let sc =(e)=>{
-       me._projectInformation=e;
-       if (successCallback) {
+    let sc = (e) => {
+      me._projectInformation = e;
+      if (successCallback) {
         successCallback(e);
-       }
-    }  
+      }
+    }
     this.projectPersistenceUseCases.deleteProject(user, projectInformation, sc, errorCallback);
-  } 
+  }
 
   saveProject(): void {
     this.projectManager.saveProject(this._project);
@@ -1122,7 +1204,7 @@ export default class ProjectService {
     return ProjectUseCases.generateId();
   }
 
-  visualizeModel() {}
+  visualizeModel() { }
 
   //This function updates the selection status of the model
   //elements based on an incoming configuration under the form
@@ -1259,24 +1341,28 @@ export default class ProjectService {
     return list;
   }
 
-  generateName(model:Model, type:string) {
+  generateName(model: Model, type: string) {
     for (let i = 1; i < 100000000; i++) {
       let name = type + " " + i;
-      let element=this.findModelElementByName(model, name);
+      let element = this.findModelElementByName(model, name);
       if (!element) {
         return name;
-      } 
+      }
     }
     return this.generateId();
   }
 
-  getProjectsByUser(successCallback:any, errorCallback: any) {
+  getProjectsByUser(successCallback: any, errorCallback: any) {
     let user = this.getUser();
     this.projectPersistenceUseCases.getProjectsByUser(user, successCallback, errorCallback);
   }
 
-  getTemplateProjects(successCallback:any, errorCallback: any) {
+  getTemplateProjects(successCallback: any, errorCallback: any) {
     let user = this.getUser();
     this.projectPersistenceUseCases.getTemplateProjects(user, successCallback, errorCallback);
   }
+
 }
+
+(window as any).projectService = new ProjectService();
+

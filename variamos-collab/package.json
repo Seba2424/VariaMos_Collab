@@ -1,0 +1,22 @@
+{
+  "name": "variamos-collab",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "express": "^4.17.1",
+    "http": "0.0.1-security",
+    "ws": "^7.4.6",
+    "body-parser": "^1.19.0",
+    "react": "^17.0.1",
+    "react-dom": "^17.0.1",
+    "react-scripts": "^5.0.1"
+  },
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "node server.js",
+    "client": "npm run start --prefix C:/Users/sebac/OneDrive/Escritorio/VariaMosPle3/VariaMosPLE"
+  },
+  "devDependencies": {
+    "concurrently": "^6.2.1"
+  }
+}
